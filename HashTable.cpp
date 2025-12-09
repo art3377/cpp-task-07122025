@@ -1,53 +1,55 @@
 #include <iostream>
-#include <string>
+#include <cstring>
 #include <cmath>
+#include <cstdio>  // для sprintf_s
 
-// Journal number = 7 (can be changed)
-// TABLE_SIZE calculation: 2^((7+3)%10 + 2) = 2^(0+2) = 4, next prime = 5
-const unsigned int TABLE_SIZE = 5;
+// Journal number sequence starts from 1: 1,2,3,4,5,...
+// TABLE_SIZE uses formula: next prime after 2^((journal+3)%10 + 2)
+// For journal=1: 2^((1+3)%10 +2) = 2^(4%10 +2) = 2^6 = 64, next prime=67
+const unsigned int TABLE_SIZE = 67;
 
-// Structure for chain node (chaining method for collisions)
+// HashNode structure for chaining collision resolution
 struct HashNode {
-    unsigned int key;           // key (unsigned int)
-    char* value;                // pointer to string value
-    HashNode* next;             // next node in chain
+    unsigned int key;      // unsigned int key
+    char* value;           // pointer to string value
+    HashNode* next;        // next node in chain
 };
 
-// djb2 hash function for string
-unsigned long djb2_hash(const char* str) {
+// djb2 hash function for string key
+unsigned int djb2_hash(const char* str) {
     unsigned long hash = 5381;
     int c;
-    while ((c = *str++)) {
+    while ((c = *str++))
         hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+    return hash % TABLE_SIZE;
+}
+
+// Generate test key: next prime after 2^((journal_number + 3)%10 + 2)
+unsigned int generate_key(int journal_number) {
+    int exp = ((journal_number + 3) % 10) + 2;
+    unsigned int power = 1u << exp;  // 2^exp
+    unsigned int candidate = power + 1;
+    while (true) {
+        bool is_prime = true;
+        for (unsigned int i = 2; i * i <= candidate; ++i) {
+            if (candidate % i == 0) {
+                is_prime = false;
+                break;
+            }
+        }
+        if (is_prime) return candidate;
+        candidate += (candidate % 2 == 0) ? 1 : 2;
     }
-    return hash;
 }
 
-// Hash function for pair (unsigned int key, char* str)
-unsigned int get_hash(unsigned int key, const char* str) {
-    unsigned long str_hash = djb2_hash(str);
-    unsigned long combined = (unsigned long)key ^ str_hash;  // XOR for combination
-    return combined % TABLE_SIZE;
-}
-
-// Generate key by formula for main example
-unsigned int generate_key(int index) {
-    // Use predefined sequence of keys for demonstration
-    static const unsigned int base_keys[] = {123, 456, 789, 1011, 1317};
-    return base_keys[index % 5];
-}
-
-// Hash table class
 class HashTable {
 private:
-    HashNode** table;  // array of pointers to chains
+    HashNode* table[TABLE_SIZE];
 
 public:
     HashTable() {
-        table = new HashNode*[TABLE_SIZE]();
-        for (int i = 0; i < TABLE_SIZE; ++i) {
+        for (int i = 0; i < TABLE_SIZE; ++i)
             table[i] = nullptr;
-        }
     }
 
     ~HashTable() {
@@ -55,74 +57,70 @@ public:
             HashNode* current = table[i];
             while (current) {
                 HashNode* next = current->next;
-                delete[] current->value;  // free string
+                delete[] current->value;
                 delete current;
                 current = next;
             }
         }
-        delete[] table;
     }
 
-    // Insert/Update
-    void insert(unsigned int key, const char* value_str) {
-        unsigned int index = get_hash(key, value_str);
-        HashNode* new_node = new HashNode{key, nullptr, nullptr};
-        
-        // Copy string
-        size_t len = strlen(value_str) + 1;
-        new_node->value = new char[len];
-        strcpy(new_node->value, value_str);
-        
-        // Check if key already exists
-        HashNode* prev = nullptr;
+    // Insert or update key-value pair
+    bool insert(unsigned int key, const char* value_str) {
+        char key_str[32];
+        sprintf_s(key_str, "u%u", key);  // MSVC-safe sprintf
+        unsigned int index = djb2_hash(key_str);
         HashNode* current = table[index];
+
+        // Check if key exists (update value)
         while (current) {
             if (current->key == key) {
-                // Update value
                 delete[] current->value;
-                current->value = new_node->value;
-                delete new_node;
-                return;
+                current->value = new char[strlen(value_str) + 1];
+                strcpy(current->value, value_str);
+                return true;
             }
-            prev = current;
             current = current->next;
         }
-        
-        // Insert at beginning of chain
-        if (prev) {
-            new_node->next = prev->next;
-            prev->next = new_node;
-        } else {
-            new_node->next = table[index];
-            table[index] = new_node;
-        }
+
+        // Insert new node
+        HashNode* new_node = new HashNode;
+        new_node->key = key;
+        new_node->value = new char[strlen(value_str) + 1];
+        strcpy(new_node->value, value_str);
+        new_node->next = table[index];
+        table[index] = new_node;
+        return true;
     }
 
-    // Search
-    char* find(unsigned int key, const char* search_str) {
-        unsigned int index = get_hash(key, search_str);
+    // Find value by key, returns pointer or nullptr
+    char* find(unsigned int key) {
+        char key_str[32];
+        sprintf_s(key_str, "u%u", key);
+        unsigned int index = djb2_hash(key_str);
         HashNode* current = table[index];
         while (current) {
-            if (current->key == key) {
+            if (current->key == key)
                 return current->value;
-            }
             current = current->next;
         }
         return nullptr;
     }
 
-    // Remove
-    bool remove(unsigned int key, const char* search_str) {
-        unsigned int index = get_hash(key, search_str);
-        HashNode* prev = nullptr;
+    // Remove key-value pair
+    bool remove(unsigned int key) {
+        char key_str[32];
+        sprintf_s(key_str, "u%u", key);
+        unsigned int index = djb2_hash(key_str);
         HashNode* current = table[index];
+        HashNode* prev = nullptr;
+
         while (current) {
             if (current->key == key) {
-                if (prev) {
+                if (prev)
                     prev->next = current->next;
-                } else {
+                else
                     table[index] = current->next;
-                }
+
                 delete[] current->value;
                 delete current;
                 return true;
@@ -133,7 +131,7 @@ public:
         return false;
     }
 
-    // Print contents for demonstration
+    // Print table contents
     void print() {
         for (int i = 0; i < TABLE_SIZE; ++i) {
             std::cout << "Bucket " << i << ": ";
@@ -150,38 +148,34 @@ public:
 int main() {
     HashTable ht;
     
-    std::cout << "=== Hash Table Demonstration ===" << std::endl;
-    std::cout << "Journal number: " << 7 << std::endl;
-    std::cout << "TABLE_SIZE = 2^((7+3)%10 + 2) = 2^(0+2) = 4, next prime = " 
-              << TABLE_SIZE << std::endl << std::endl;
+    // Test data: keys generated by formula for journal numbers 1-5
+    // journal=1: 2^6=64 ? 67, "Artemova"
+    // journal=2: 2^7=128 ? 131, "data131"  
+    // journal=3: 2^8=256 ? 257, "data257"
+    // journal=4: 2^9=512 ? 521, "data521"
+    // journal=5: 2^10=1024 ? 1031, "data1031"
     
-    // Test 1: Insert with keys generated by formula
-    std::cout << "1. Inserting elements with generated keys:" << std::endl;
-    ht.insert(generate_key(0), "value1");  // key = 123
-    ht.insert(generate_key(1), "value2");  // key = 456  
-    ht.insert(generate_key(2), "value3");  // key = 789 (may collide in same bucket)
+    std::cout << "1. Insert test data:" << std::endl;
+    unsigned int keys[] = {67, 131, 257, 521, 1031};
+    const char* values[] = {"Artemova", "data131", "data257", "data521", "data1031"};
+    
+    for (int i = 0; i < 5; ++i) {
+        ht.insert(keys[i], values[i]);
+        std::cout << "Inserted: key=" << keys[i] << ", value=\"" << values[i] << "\"" << std::endl;
+    }
     ht.print();
     
-    // Test 2: Search
-    std::cout << "\n2. Search:" << std::endl;
-    char* found1 = ht.find(generate_key(0), "value1");
-    std::cout << "Key " << generate_key(0) << ": " << (found1 ? found1 : "not found") << std::endl;
+    std::cout << "\n2. Search tests:" << std::endl;
+    std::cout << "Find 257: \"" << (ht.find(257) ? ht.find(257) : "not found") << "\"" << std::endl;
+    std::cout << "Find 999: \"" << (ht.find(999) ? ht.find(999) : "not found") << "\"" << std::endl;
     
-    char* found2 = ht.find(generate_key(1), "value2");
-    std::cout << "Key " << generate_key(1) << ": " << (found2 ? found2 : "not found") << std::endl;
+    std::cout << "\n3. Update test:" << std::endl;
+    ht.insert(257, "updated_data257");
+    std::cout << "Updated 257: \"" << ht.find(257) << "\"" << std::endl;
     
-    char* not_found = ht.find(generate_key(4), "test");  // key 1317 doesn't exist
-    std::cout << "Key " << generate_key(4) << ": " << (not_found ? not_found : "not found") << std::endl;
-    
-    // Test 3: Update
-    std::cout << "\n3. Updating value:" << std::endl;
-    ht.insert(generate_key(0), "new_value1");  // update existing key
-    ht.print();
-    
-    // Test 4: Remove
-    std::cout << "\n4. Removing key " << generate_key(1) << ":" << std::endl;
-    bool removed = ht.remove(generate_key(1), "value2");
-    std::cout << "Removed: " << (removed ? "yes" : "no") << std::endl;
+    std::cout << "\n4. Delete test:" << std::endl;
+    bool removed = ht.remove(131);
+    std::cout << "Removed 131: " << (removed ? "yes" : "no") << std::endl;
     ht.print();
     
     return 0;
