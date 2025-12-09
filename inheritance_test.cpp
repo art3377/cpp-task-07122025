@@ -2,13 +2,14 @@
 
 // Base class D with required fields for testing
 class D {
-public:
-    int x;
-    int y;
 };
 
 // A inherits publicly from D
 class A : public D {
+    public:
+    int x;
+    int y;
+
 };
 
 // B inherits publicly from D  
